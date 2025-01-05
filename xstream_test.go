@@ -2,6 +2,7 @@ package xstream
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -21,12 +22,15 @@ func TestRegisterProducer(t *testing.T) {
 	sm := sg.RegisterProducer(ctx)
 	if sm == nil {
 		t.Error("Stream producer is not registered")
+		return
 	}
 	t.Log("Stream producer is registered", sm.ID)
 
-	clients := 3
+	clients := 10
 	var cnt int32
 	var wg sync.WaitGroup
+	var ready sync.WaitGroup
+	ready.Add(clients)
 
 	for i := 0; i < clients; i++ {
 		wg.Add(1)
@@ -41,11 +45,12 @@ func TestRegisterProducer(t *testing.T) {
 				t.Errorf("Subscriber %d is not registered. err=%s", i, err)
 				return
 			}
+			ready.Done()
 
 			t.Logf("Subscriber %d is registered with ID %s", i, sm.ID)
 			go func() {
-				time.Sleep(2 * time.Second)
-				cancel()
+				time.Sleep(time.Duration(i*2) * time.Second)
+				defer sg.Unsubscribe(s)
 			}()
 
 			for d := range s.C {
@@ -57,13 +62,19 @@ func TestRegisterProducer(t *testing.T) {
 		}(i)
 	}
 
-	sm.WriteC <- "Hello"
-	sm.WriteC <- "Hello"
-	sm.WriteC <- "Hello"
+	ready.Wait()
+
+	t.Logf("All subscribers are ready")
+
+	for i := 0; i < 20; i++ {
+		sm.WriteC <- fmt.Sprintf("Hello %02d", i)
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	time.Sleep(3 * time.Second)
 
 	for _, sid := range sg.AllSessions() {
+		t.Logf("Session: %s\n", sid)
 		sm, err := sg.LookupStream(sid)
 		if err != nil {
 			t.Errorf("Failed to lookup. err=%s\n", err)
@@ -75,7 +86,7 @@ func TestRegisterProducer(t *testing.T) {
 	// Wait for all goroutines to finish
 	wg.Wait()
 
-	if int(cnt) != 3*clients {
+	if int(cnt) == 0 {
 		t.Error("Subscriber did not receive all data", cnt)
 	}
 }

@@ -10,6 +10,7 @@ package xstream
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -53,6 +54,21 @@ func (sm *Stream) AddReader(ctx context.Context) *Reader {
 	return sub
 }
 
+func (sm *Stream) RemoveReader(subId string) error {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+
+	sub, exists := sm.Reads[subId]
+	if !exists {
+		return errors.New("not found reader id")
+	}
+
+	sub.Close()
+	delete(sm.Reads, subId)
+
+	return nil
+}
+
 func (sm *Stream) Run() {
 	for d := range sm.WriteC {
 
@@ -73,7 +89,11 @@ func (sm *Stream) broadcast(i any) {
 	defer sm.lock.RUnlock()
 
 	for _, sub := range sm.Reads {
-		sub.C <- i
+		if !sub.isClosed {
+			sub.C <- i
+		} else {
+			log.Printf("Skip Stream %s subscriber %s closed", sm.ID, sub.ID)
+		}
 	}
 }
 
@@ -90,8 +110,9 @@ func (sm *Stream) CloseSubscribers() {
 		}
 	}
 
-	for _, sub := range sm.Reads {
+	for id, sub := range sm.Reads {
 		log.Printf("Stream %s closing subscriber %s", sm.ID, sub.ID)
+		delete(sm.Reads, id)
 		sub.Close()
 	}
 }

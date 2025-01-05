@@ -109,6 +109,12 @@ func (sg *StreamGroup) LookupStream(streamID string) (*Stream, error) {
 	return stream, nil
 }
 
-func (sg *StreamGroup) Unsubscribe(streamID string) error {
+func (sg *StreamGroup) Unsubscribe(r *Reader) error {
+	sm, err := sg.LookupStream(r.StreamID)
+	if err != nil {
+		return err
+	}
+
+	sm.RemoveReader(r.ID)
 	return nil
 }
